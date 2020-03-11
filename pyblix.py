@@ -4,12 +4,20 @@ import requests
 from bs4 import BeautifulSoup
 
 from base import PybLevel, PybLink, PybActivity
-from exceptions import InvalidParentLevelException, InvalidTargetException, DuplicateLevelException, InvalidLinkEntryException, NoLinksInScanLevel, greq_excep_handler
+from exceptions import InvalidParentLevelException, InvalidTargetException, DuplicateLevelException,\
+    InvalidLinkEntryException, NoLinksInScanLevel, UnknownDictExceptionError
+from urllib.parse import urlparse
 
 
 class GatherLink(PybLink):
     def __init__(self, text, link):
         super(GatherLink, self).__init__(text, link)
+
+
+class ScanLinkResult(PybLink):
+    def __init__(self, result_string, title, link):
+        super(ScanLinkResult, self).__init__(title, link)
+        self.result_string = result_string
 
 
 class GatherLevel(PybLevel):
@@ -100,6 +108,7 @@ class Scanner(PybActivity):
 
         self.scan_levels = []
         self.article_link_dict = {}
+        self.link_status = {}
 
     def add_level(self, scan_level: ScanLevel):
         if scan_level not in self.scan_levels:
@@ -123,14 +132,27 @@ class Scanner(PybActivity):
                 raise InvalidLinkEntryException
 
         if self.verbose:
-            print(f"All Done, we normalized {self.tmp_total_links} links to {len(self._normalized_link_list)} !")
+            print(f"Done normalizing, we reduced {self.tmp_total_links} links to {len(self._normalized_link_list)} !")
+
+        if self.verbose:
+            print("Cleaning up links we can't query")
+
+        # clean copy
+        clean_list = []
+        [clean_list.append(entry) for entry in self._normalized_link_list
+         if (entry[:4] == "http" or entry[:5] == "https")
+         and "//localhost" not in entry
+         ]
+
+        self._normalized_link_list = clean_list
+        if self.verbose:
+            print(f"{len(self._normalized_link_list)} links left after cleaning!")
 
     def collect_links(self):
         if len(self.scan_levels) > 0:
             for article in self.all_articles:
                 if self.verbose:
                     print(f"Getting links for article: {article}")
-                counter = 0
                 with requests.Session() as _sess:
                     article_resp = _sess.get(url=article.link, headers=self._for_gatherer.request_headers,
                                              verify=self.verify_ssl)
@@ -164,17 +186,66 @@ class Scanner(PybActivity):
         else:
             raise NoLinksInScanLevel
 
+    def link_iterator(self):
+        for u in self._normalized_link_list:
+            parsed_url = urlparse(u)
+            host = parsed_url.netloc
+
+            request_headers = self._for_gatherer.request_headers.update({"Host": host})
+            yield grequests.get(url=u, headers=request_headers, verify=self.verify_ssl, timeout=self.timeout)
+
     def scan_links(self):
+        # Lix had a lot more but even now most are obsolete for a link scanner.
+        response_code_readable_dict = {
+            200: "OK: All Good!",
+            201: "OK: API Created response (?)",
+            202: "OK: Accepted",
+
+            301: "WRN: Moved permanently",
+            302: "WRN: Redirected",
+
+            400: "ERR: Bad Request",
+            401: "ERR: Unauthorized",
+            403: "ERR: Forbidden",
+            404: "ERR: Not Found",
+            405: "ERR: Get not allowed (?)",
+            406: "ERR: Unacceptable request",
+            429: "CRIT: Too many requests you filthy animal",
+
+            500: "ERR: Internal Server Error",
+            502: "ERR: Bad Gateway",
+            503: "ERR: Service Unavailable"
+        }
+
         if self.verbose:
             print("Generating request set")
-        request_set = (grequests.get(url=u,
-                                     headers=self._for_gatherer.request_headers,
-                                     verify=self.verify_ssl,
-                                     timeout=self.timeout)
-                       for u in self._normalized_link_list)
 
-        if self.verbose:
-            print("Firing requests and waiting for them to come back.")
-        all_results = grequests.map(request_set, exception_handler=greq_excep_handler)
+        request_set = (u for u in self.link_iterator())
+        print("Firing requests and waiting for them to come back.")
+        all_results = grequests.map(request_set, exception_handler=self.request_exception_handler)
 
-        print(all_results)
+        for result in all_results:
+            if result is not None:
+                self.link_status[result.url] = response_code_readable_dict[result.status_code]
+
+            # else drop it, we have it because of our exception handler.
+
+    def get_link_status(self, link):
+        return self.link_status[link]
+
+    def request_exception_handler(self, request, exception):
+        exception_readable_dict = {
+            requests.exceptions.SSLError: "ERR: SSL Error",
+            requests.exceptions.InvalidURL: "ERR: URL Invalid",  # TODO: Maybe find a way to clean these up? re?
+            requests.exceptions.ConnectionError: "ERR: Couldn't connect",
+            TypeError: "ERR: Unreadable response",  # Lol wth
+            requests.exceptions.ConnectTimeout: "ERR: Timed out",
+            requests.exceptions.ReadTimeout: "ERR: Read timed out"
+        }
+
+        # Response object will be none so we need to add it to dict here
+        try:
+            self.link_status[request.url] = exception_readable_dict[type(exception)]
+        except KeyError as ex:
+            print(ex)
+            raise UnknownDictExceptionError

@@ -30,6 +30,7 @@ class NoLinksInScanLevel(Exception):
         super(NoLinksInScanLevel, self).__init__(self, msg)
 
 
-def greq_excep_handler(request, exception):
-    print(f"Request failed for: {request.url}")
-    print(f"{exception}")
+class UnknownDictExceptionError(Exception):
+    def __init__(self):
+        msg = "Oof! You ran into an exception that's not yet in our dict" # Todo: Write docs for how to fix.
+        super(NoLinksInScanLevel, self).__init__(self, msg)
