@@ -1,10 +1,10 @@
 import re
+import grequests
 import requests
 from bs4 import BeautifulSoup
-import asyncio
 
 from base import PybLevel, PybLink, PybActivity
-from exceptions import InvalidParentLevelException, InvalidTargetException, DuplicateLevelException
+from exceptions import InvalidParentLevelException, InvalidTargetException, DuplicateLevelException, InvalidLinkEntryException, NoLinksInScanLevel, greq_excep_handler
 
 
 class GatherLink(PybLink):
@@ -87,12 +87,17 @@ class ScanLevel(PybLevel):
 
 
 class Scanner(PybActivity):
-    def __init__(self, gatherer: Gatherer):
+    tmp_total_links = 0
+
+    def __init__(self, gatherer: Gatherer, timeout: int = 3):
         self._for_gatherer = gatherer
         v, d, v_s = self._for_gatherer.verbose, self._for_gatherer.domain, self._for_gatherer.verify_ssl
         super(Scanner, self).__init__(v, d, v_s)
 
         self.all_articles = self._for_gatherer.gather_links
+
+        self.timeout = timeout
+
         self.scan_levels = []
         self.article_link_dict = {}
 
@@ -101,6 +106,24 @@ class Scanner(PybActivity):
             self.scan_levels.append(scan_level)
         else:
             raise DuplicateLevelException
+
+    def _create_normalized_link_list(self):
+        if self.verbose:
+            print("Normalizing the obtained link dictionary")
+        self._normalized_link_list = []
+
+        for k in self.article_link_dict.keys():
+            # What if the link is still a string and not a list?
+            v = self.article_link_dict.get(k)
+            if isinstance(v, str) and v not in self._normalized_link_list:
+                self._normalized_link_list.append(v)
+            elif isinstance(v, list):
+                [self._normalized_link_list.append(x) for x in v if x not in self._normalized_link_list]
+            else:
+                raise InvalidLinkEntryException
+
+        if self.verbose:
+            print(f"All Done, we normalized {self.tmp_total_links} links to {len(self._normalized_link_list)} !")
 
     def collect_links(self):
         if len(self.scan_levels) > 0:
@@ -119,6 +142,7 @@ class Scanner(PybActivity):
 
                     search_frame = soup.find(scan_level.html_tag, {scan_level.html_attrib: scan_level.html_attrib_val})
                     all_links_in_article = search_frame.find_all("a")
+                    self.tmp_total_links += len(all_links_in_article)
                     if self.verbose:
                         print(f"We found {len(all_links_in_article)} links.")
                     for link in all_links_in_article:
@@ -135,8 +159,22 @@ class Scanner(PybActivity):
                                 self.article_link_dict[article.text].append(link_href)
                         else:
                             self.article_link_dict[article.text] = link_href
+            self._create_normalized_link_list()
 
-        print(self.article_link_dict)
+        else:
+            raise NoLinksInScanLevel
 
+    def scan_links(self):
+        if self.verbose:
+            print("Generating request set")
+        request_set = (grequests.get(url=u,
+                                     headers=self._for_gatherer.request_headers,
+                                     verify=self.verify_ssl,
+                                     timeout=self.timeout)
+                       for u in self._normalized_link_list)
 
+        if self.verbose:
+            print("Firing requests and waiting for them to come back.")
+        all_results = grequests.map(request_set, exception_handler=greq_excep_handler)
 
+        print(all_results)
