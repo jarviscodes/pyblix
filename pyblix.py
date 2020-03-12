@@ -188,6 +188,35 @@ class Scanner(PybActivity):
         if self.verbose:
             print(f"{len(self._normalized_link_list)} links left after cleaning!")
 
+    def handle_frame(self, search_frame, article):
+        try:
+            all_links_in_article = search_frame.find_all("a")
+        except AttributeError:
+            print("Oof")
+            all_links_in_article = []
+        self.tmp_total_links += len(all_links_in_article)
+        if self.verbose:
+            print(f"We found {len(all_links_in_article)} links.")
+        for link in all_links_in_article:
+            try:
+                link_href = urllib.parse.unquote(link["href"])
+                if link_href[-1:] in ["?", "\u2026", "#"]:
+                    link_href = link_href[:-1]
+            except KeyError:
+                # no href... ignore it
+                continue
+
+            if article.text in self.article_link_dict.keys():
+                if isinstance(self.article_link_dict[article.text], str):
+                    self.article_link_dict[article.text] = [
+                        self.article_link_dict[article.text],
+                        link_href,
+                    ]
+                else:
+                    self.article_link_dict[article.text].append(link_href)
+            else:
+                self.article_link_dict[article.text] = link_href
+
     def collect_links(self):
         if len(self.scan_levels) > 0:
             for article in self.all_articles:
@@ -202,33 +231,22 @@ class Scanner(PybActivity):
                 article_body = article_resp.text
                 soup = BeautifulSoup(article_body, "html.parser")
                 for scan_level in self.scan_levels:
-                    search_frame = soup.find(
+
+                    count_helper = soup.find_all(
                         scan_level.html_tag,
                         {scan_level.html_attrib: scan_level.html_attrib_val},
                     )
-                    all_links_in_article = search_frame.find_all("a")
-                    self.tmp_total_links += len(all_links_in_article)
-                    if self.verbose:
-                        print(f"We found {len(all_links_in_article)} links.")
-                    for link in all_links_in_article:
-                        try:
-                            link_href = urllib.parse.unquote(link["href"])
-                            if link_href[-1:] in ["?", "\u2026", "#"]:
-                                link_href = link_href[:-1]
-                        except KeyError:
-                            # no href... ignore it
-                            continue
 
-                        if article.text in self.article_link_dict.keys():
-                            if isinstance(self.article_link_dict[article.text], str):
-                                self.article_link_dict[article.text] = [
-                                    self.article_link_dict[article.text],
-                                    link_href,
-                                ]
-                            else:
-                                self.article_link_dict[article.text].append(link_href)
-                        else:
-                            self.article_link_dict[article.text] = link_href
+                    if len(count_helper) > 0:
+                        for frame in count_helper:
+                            self.handle_frame(frame, article)
+                    else:
+                        search_frame = soup.find(
+                            scan_level.html_tag,
+                            {scan_level.html_attrib: scan_level.html_attrib_val},
+                        )
+                        self.handle_frame(search_frame, article)
+
             self._create_normalized_link_list()
 
         else:
@@ -240,6 +258,7 @@ class Scanner(PybActivity):
             host = parsed_url.netloc
 
             request_headers = self._for_gatherer.request_headers.update({"Host": host})
+
             yield grequests.get(
                 url=u,
                 headers=request_headers,
@@ -271,12 +290,14 @@ class Scanner(PybActivity):
             print("Generating request set")
 
         request_set = (u for u in self.link_iterator())
+
         print("Firing requests and waiting for them to come back.")
         all_results = grequests.map(
             request_set, exception_handler=self.request_exception_handler
         )
 
         for result in all_results:
+            print("In Resultloop")
             if result is not None:
                 # VERY Interesting :-)
                 hist = result.history

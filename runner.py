@@ -1,29 +1,66 @@
 from pyblix import Gatherer, GatherLevel, ScanLevel, Scanner
 
-# Create a gather level
-gl = GatherLevel("ul", "id", "articleList")
 
-# Create and prepare the gatherer
-g = Gatherer(
-    domain="pybit.es",
-    verify_ssl=True,
-    article_root_page="https://pybit.es/pages/articles.html",
-    parent_level=gl,
-    verbose=True,
-)
+def toe_runner():
+    # Create a gather level
+    gl = GatherLevel("ul", "class", "uk-nav-side")
 
-# prepare the scanner and scanlevel
-sl_1 = ScanLevel("article", "class", "single")
+    # Create and prepare the gatherer
+    g = Gatherer(
+        domain="clamytoe.github.io",
+        verify_ssl=True,
+        article_root_page="https://clamytoe.github.io/",
+        parent_level=gl,
+        verbose=True,
+    )
 
-# Create Scanner
-s = Scanner(g)
+    # prepare the scanner and scanlevel
+    sl_1 = ScanLevel("article", "class", "uk-article")
 
-# Add level
-s.add_level(sl_1)
+    # Create Scanner
+    s = Scanner(g)
 
-# Collect and scan links
-s.collect_links()
-s.scan_links()
+    # Add level
+    s.add_level(sl_1)
 
-# Now we can print the scan report.
-s.print_basic_scan_report()
+    # Collect and scan links
+    s.collect_links()
+    s.scan_links()
+
+    # Now we can print the scan report.
+    s.print_basic_scan_report()
+
+
+def pybit_runner():
+    # Create a gather level
+    gl = GatherLevel("ul", "id", "articleList")
+
+    # Create and prepare the gatherer
+    g = Gatherer(
+        domain="pybit.es",
+        verify_ssl=True,
+        article_root_page="https://pybit.es/pages/articles.html",
+        parent_level=gl,
+        verbose=True,
+    )
+
+    # prepare the scanner and scanlevel
+    sl_1 = ScanLevel("article", "class", "single")
+
+    # Create Scanner
+    s = Scanner(g, timeout=3)
+
+    # Add level
+    s.add_level(sl_1)
+
+    # Collect and scan links
+    s.collect_links()
+    s.scan_links()
+
+    # Now we can print the scan report.
+    s.print_basic_scan_report()
+
+
+if __name__ == '__main__':
+    pybit_runner()
+    # toe_runner()
