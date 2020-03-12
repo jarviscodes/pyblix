@@ -1,10 +1,16 @@
-from pyblix import GatherLevel, Gatherer, ScanLevel, Scanner
+from pyblix import Gatherer, GatherLevel, ScanLevel, Scanner
 
 # Create a gather level
 gl = GatherLevel("ul", "id", "articleList")
 
 # Create and prepare the gatherer
-g = Gatherer(domain="pybit.es", verify_ssl=True, article_root_page="https://pybit.es/pages/articles.html", parent_level=gl, verbose=True)
+g = Gatherer(
+    domain="pybit.es",
+    verify_ssl=True,
+    article_root_page="https://pybit.es/pages/articles.html",
+    parent_level=gl,
+    verbose=True,
+)
 
 # prepare the scanner and scanlevel
 sl_1 = ScanLevel("article", "class", "single")

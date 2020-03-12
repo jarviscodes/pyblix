@@ -2,4 +2,5 @@ debug_runner.py
 venv/
 .idea/
 .pytest_cache/
+.vscode/
 __pycache__/
