@@ -1,6 +1,9 @@
 import copy
 # import re
 import urllib.parse
+
+from http_headers import FIREFOX_LINUX
+
 from exceptions import (
     DuplicateLevelException,
     InvalidLinkEntryException,
@@ -49,8 +52,7 @@ class Gatherer(PybActivity):
     _user_agent = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
     )
-    _accept_header = "text/html,application/xhtml+xml,application/xml"
-    request_headers = {"User-Agent": _user_agent, "Accept": _accept_header}
+    request_headers = FIREFOX_LINUX
 
     def __init__(
         self,
@@ -63,10 +65,6 @@ class Gatherer(PybActivity):
         super(Gatherer, self).__init__(verbose, domain, verify_ssl)
         self.article_root_page = article_root_page
         self.identifiable_parent_level = parent_level
-
-        # Add Host field to header, some pages give 500's or other vhosts without Host
-        host_header = {"Host": self.domain}
-        self.request_headers.update(host_header)
 
         self.gather_links = []
         if self.verbose:
@@ -254,14 +252,9 @@ class Scanner(PybActivity):
 
     def link_iterator(self):
         for u in self._normalized_link_list:
-            parsed_url = urlparse(u)
-            host = parsed_url.netloc
-
-            request_headers = self._for_gatherer.request_headers.update({"Host": host})
-
             yield grequests.get(
                 url=u,
-                headers=request_headers,
+                headers=self._for_gatherer.request_headers,
                 verify=self.verify_ssl,
                 timeout=self.timeout,
             )

@@ -15,10 +15,10 @@ def toe_runner():
     )
 
     # prepare the scanner and scanlevel
-    sl_1 = ScanLevel("article", "class", "uk-article")
+    sl_1 = ScanLevel("section", "itemprop", "articleBody")
 
     # Create Scanner
-    s = Scanner(g)
+    s = Scanner(g, timeout=5)
 
     # Add level
     s.add_level(sl_1)
