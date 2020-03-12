@@ -1,6 +1,10 @@
 import re
 import grequests
 import requests
+
+import copy
+
+import urllib.parse
 from bs4 import BeautifulSoup
 
 from base import PybLevel, PybLink, PybActivity
@@ -139,12 +143,11 @@ class Scanner(PybActivity):
 
         # clean copy
         clean_list = []
-        [clean_list.append(entry) for entry in self._normalized_link_list
-         if (entry[:4] == "http" or entry[:5] == "https")
-         and "//localhost" not in entry
-         ]
+        # \u2026 grmblgrmbl...
 
-        self._normalized_link_list = clean_list
+        [clean_list.append(entry.replace("\u2026", '')) for entry in self._normalized_link_list if (entry[:4] == "http" or entry[:5] == "https") and "//localhost" not in entry]
+        self._normalized_link_list = copy.deepcopy(clean_list)
+
         if self.verbose:
             print(f"{len(self._normalized_link_list)} links left after cleaning!")
 
@@ -159,9 +162,6 @@ class Scanner(PybActivity):
                 article_body = article_resp.text
                 soup = BeautifulSoup(article_body, 'html.parser')
                 for scan_level in self.scan_levels:
-                    if self.verbose:
-                        print(f"Scanning level: {scan_level}")
-
                     search_frame = soup.find(scan_level.html_tag, {scan_level.html_attrib: scan_level.html_attrib_val})
                     all_links_in_article = search_frame.find_all("a")
                     self.tmp_total_links += len(all_links_in_article)
@@ -169,7 +169,9 @@ class Scanner(PybActivity):
                         print(f"We found {len(all_links_in_article)} links.")
                     for link in all_links_in_article:
                         try:
-                            link_href = link['href']
+                            link_href = urllib.parse.unquote(link['href'])
+                            if link_href[-1:] == '?' or link_href[-1:] == '\u2026':
+                                link_href = link_href[:-1]
                         except KeyError:
                             # no href... ignore it
                             continue
@@ -201,8 +203,8 @@ class Scanner(PybActivity):
             201: "OK: API Created response (?)",
             202: "OK: Accepted",
 
-            301: "WRN: Moved permanently",
-            302: "WRN: Redirected",
+            301: "WRN: Moved permanently to {}",
+            302: "WRN: Redirected to {}",
 
             400: "ERR: Bad Request",
             401: "ERR: Unauthorized",
@@ -226,12 +228,18 @@ class Scanner(PybActivity):
 
         for result in all_results:
             if result is not None:
-                self.link_status[result.url] = response_code_readable_dict[result.status_code]
-
-            # else drop it, we have it because of our exception handler.
+                # VERY Interesting :-)
+                hist = result.history
+                if len(hist) > 0:
+                    self.link_status[urllib.parse.unquote(hist[0].url)] = response_code_readable_dict[hist[0].status_code].format(result.url)
+                else:
+                    self.link_status[urllib.parse.unquote(result.url)] = response_code_readable_dict[result.status_code]
 
     def get_link_status(self, link):
-        return self.link_status[link]
+        try:
+            return self.link_status[link]
+        except KeyError:
+            return self.link_status[link + "/"] # 3 goddamn hours. If this raises a frigging error you can have it xD
 
     def request_exception_handler(self, request, exception):
         exception_readable_dict = {
