@@ -170,7 +170,7 @@ class Scanner(PybActivity):
                     for link in all_links_in_article:
                         try:
                             link_href = urllib.parse.unquote(link['href'])
-                            if link_href[-1:] == '?' or link_href[-1:] == '\u2026':
+                            if link_href[-1:] == '?' or link_href[-1:] == '\u2026' or link_href[-1:] == "#":
                                 link_href = link_href[:-1]
                         except KeyError:
                             # no href... ignore it
@@ -257,3 +257,22 @@ class Scanner(PybActivity):
         except KeyError as ex:
             print(ex)
             raise UnknownDictExceptionError
+
+    def print_basic_scan_report(self):
+        for article in self.get_article_link_dict:
+            print(f"Running article {article}")
+            for link in self.get_article_link_dict[article]:
+                if link in self.get_normalized_link_list:
+                    print(f"\t{link} => {self.get_link_status(link)}")
+
+    @property
+    def get_normalized_link_list(self):
+        return self._normalized_link_list
+
+    @property
+    def get_article_link_dict(self):
+        return self.article_link_dict
+
+    @property
+    def get_link_status_dict(self):
+        return self.link_status
