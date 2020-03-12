@@ -62,5 +62,5 @@ def pybit_runner():
 
 
 if __name__ == '__main__':
-    pybit_runner()
-    # toe_runner()
+    #pybit_runner()
+    toe_runner()
