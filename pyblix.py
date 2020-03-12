@@ -297,7 +297,6 @@ class Scanner(PybActivity):
         )
 
         for result in all_results:
-            print("In Resultloop")
             if result is not None:
                 # VERY Interesting :-)
                 hist = result.history
