@@ -359,16 +359,6 @@ class Scanner(PybActivity):
                         )
 
     def request_exception_handler(self, request, exception):
-        exception_readable_dict = {
-            requests.exceptions.SSLError: "ERR: SSL Error",
-            # TODO: Maybe find a way to clean these up? re?
-            requests.exceptions.InvalidURL: "ERR: URL Invalid",
-            requests.exceptions.ConnectionError: "ERR: Couldn't connect",
-            TypeError: "ERR: Unreadable response",  # Lol wth
-            requests.exceptions.ConnectTimeout: "ERR: Timed out",
-            requests.exceptions.ReadTimeout: "ERR: Read timed out",
-        }
-
         indices = [
             i
             for i, x in enumerate(self._all_results)
