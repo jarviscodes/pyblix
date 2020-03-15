@@ -1,4 +1,5 @@
 import copy
+
 # import re
 import urllib.parse
 
@@ -24,12 +25,6 @@ from base import PybActivity, PybLevel, PybLink
 class GatherLink(PybLink):
     def __init__(self, text, link):
         super(GatherLink, self).__init__(text, link)
-
-
-class ScanLinkResult(PybLink):
-    def __init__(self, result_string, title, link):
-        super(ScanLinkResult, self).__init__(title, link)
-        self.result_string = result_string
 
 
 class GatherLevel(PybLevel):
@@ -95,8 +90,7 @@ class Gatherer(PybActivity):
         html_attrib = self.identifiable_parent_level.html_attrib
         html_attrib_val = self.identifiable_parent_level.html_attrib_val
         self.parent_level_soup = self.article_root_soup.find(
-            self.identifiable_parent_level.html_tag,
-            {html_attrib: html_attrib_val},
+            self.identifiable_parent_level.html_tag, {html_attrib: html_attrib_val},
         )
 
         try:
@@ -117,6 +111,65 @@ class ScanLevel(PybLevel):
         super(ScanLevel, self).__init__(html_tag, html_attrib, html_attrib_val)
 
 
+class ScanResult(object):
+    def __init__(self, parent_text, parent_link):
+        self.parent_text = parent_text
+        self.parent_link = parent_link
+
+        self.scan_link = ""
+
+        self.status_code = 0
+        self.threw_exception = False
+        self.result_text = ""
+        self.scan_done = False
+
+    def set_scan_link(self, link):
+        self.scan_link = link
+
+    def set_result_by_exception(self, excep):
+        exception_readable_dict = {
+            requests.exceptions.SSLError: "ERR: SSL Error",
+            # TODO: Maybe find a way to clean these up? re?
+            requests.exceptions.InvalidURL: "ERR: URL Invalid",
+            requests.exceptions.ConnectionError: "ERR: Couldn't connect",
+            TypeError: "ERR: Unreadable response",  # Lol wth
+            requests.exceptions.ConnectTimeout: "ERR: Timed out",
+            requests.exceptions.ReadTimeout: "ERR: Read timed out",
+        }
+
+        # Response object will be none so we need to add it to dict here
+        try:
+            self.threw_exception = True
+            self.result_text = exception_readable_dict[type(excep)]
+            self.scan_done = True
+        except KeyError as ex:
+            print(ex)
+            raise UnknownDictExceptionError
+
+    def set_result_by_status_code(self, status_code, redir_link=""):
+        response_code_readable_dict = {
+            200: "OK: All Good!",
+            201: "OK: API Created response (?)",
+            202: "OK: Accepted",
+            301: "WRN: Moved permanently to {}",
+            302: "WRN: Redirected to {}",
+            400: "ERR: Bad Request",
+            401: "ERR: Unauthorized",
+            403: "ERR: Forbidden",
+            404: "ERR: Not Found",
+            405: "ERR: Get not allowed (?)",
+            406: "ERR: Unacceptable request",
+            429: "CRIT: Too many requests you filthy animal",
+            500: "ERR: Internal Server Error",
+            502: "ERR: Bad Gateway",
+            503: "ERR: Service Unavailable",
+        }
+
+        self.status_code = status_code
+        self.result_text = response_code_readable_dict[status_code].format(redir_link)
+        self.scan_done = True
+
+
 class Scanner(PybActivity):
     tmp_total_links = 0
 
@@ -135,7 +188,7 @@ class Scanner(PybActivity):
 
         self.scan_levels = []
         self.article_link_dict = {}
-        self.link_status = {}
+        self._all_results = []
 
     def add_level(self, scan_level: ScanLevel):
         if scan_level not in self.scan_levels:
@@ -186,11 +239,12 @@ class Scanner(PybActivity):
         if self.verbose:
             print(f"{len(self._normalized_link_list)} links left after cleaning!")
 
-    def handle_frame(self, search_frame, article):
+    def handle_frame(self, search_frame, article, scan_result: ScanResult):
         try:
             all_links_in_article = search_frame.find_all("a")
         except AttributeError:
-            print("Oof")
+            if self.verbose:
+                print(f"Dropping {article.text} because it contains no links.")
             all_links_in_article = []
         self.tmp_total_links += len(all_links_in_article)
         if self.verbose:
@@ -204,7 +258,12 @@ class Scanner(PybActivity):
                 # no href... ignore it
                 continue
 
+            tmp_scan_result = copy.deepcopy(scan_result)
+            tmp_scan_result.set_scan_link(link_href)
+            self._all_results.append(tmp_scan_result)
+
             if article.text in self.article_link_dict.keys():
+
                 if isinstance(self.article_link_dict[article.text], str):
                     self.article_link_dict[article.text] = [
                         self.article_link_dict[article.text],
@@ -220,6 +279,8 @@ class Scanner(PybActivity):
             for article in self.all_articles:
                 if self.verbose:
                     print(f"Getting links for article: {article}")
+
+                s = ScanResult(article.text, article.link)
                 with requests.Session() as _sess:
                     article_resp = _sess.get(
                         url=article.link,
@@ -237,13 +298,13 @@ class Scanner(PybActivity):
 
                     if len(count_helper) > 0:
                         for frame in count_helper:
-                            self.handle_frame(frame, article)
+                            self.handle_frame(frame, article, s)
                     else:
                         search_frame = soup.find(
                             scan_level.html_tag,
                             {scan_level.html_attrib: scan_level.html_attrib_val},
                         )
-                        self.handle_frame(search_frame, article)
+                        self.handle_frame(search_frame, article, s)
 
             self._create_normalized_link_list()
 
@@ -260,25 +321,6 @@ class Scanner(PybActivity):
             )
 
     def scan_links(self):
-        # Lix had a lot more but even now most are obsolete for a link scanner.
-        response_code_readable_dict = {
-            200: "OK: All Good!",
-            201: "OK: API Created response (?)",
-            202: "OK: Accepted",
-            301: "WRN: Moved permanently to {}",
-            302: "WRN: Redirected to {}",
-            400: "ERR: Bad Request",
-            401: "ERR: Unauthorized",
-            403: "ERR: Forbidden",
-            404: "ERR: Not Found",
-            405: "ERR: Get not allowed (?)",
-            406: "ERR: Unacceptable request",
-            429: "CRIT: Too many requests you filthy animal",
-            500: "ERR: Internal Server Error",
-            502: "ERR: Bad Gateway",
-            503: "ERR: Service Unavailable",
-        }
-
         if self.verbose:
             print("Generating request set")
 
@@ -294,23 +336,27 @@ class Scanner(PybActivity):
                 # VERY Interesting :-)
                 hist = result.history
                 if len(hist) > 0:
-                    self.link_status[
-                        urllib.parse.unquote(hist[0].url)
-                    ] = response_code_readable_dict[hist[0].status_code].format(
-                        result.url
-                    )
-                else:
-                    self.link_status[
-                        urllib.parse.unquote(result.url)
-                    ] = response_code_readable_dict[result.status_code]
+                    # Where does this link occur in our scan results?
+                    indices = [
+                        i
+                        for i, x in enumerate(self._all_results)
+                        if x.scan_link == urllib.parse.unquote(hist[0].url)
+                    ]
 
-    def get_link_status(self, link):
-        try:
-            return self.link_status[link]
-        except KeyError:
-            return self.link_status[
-                link + "/"
-            ]  # 3 goddamn hours. If this raises a frigging error you can have it xD
+                    for idx in indices:
+                        self._all_results[idx].set_result_by_status_code(
+                            hist[0].status_code, urllib.parse.unquote(result.url)
+                        )
+                else:
+                    indices = [
+                        i
+                        for i, x in enumerate(self._all_results)
+                        if x.scan_link == urllib.parse.unquote(result.url)
+                    ]
+                    for idx in indices:
+                        self._all_results[idx].set_result_by_status_code(
+                            result.status_code, urllib.parse.unquote(result.url)
+                        )
 
     def request_exception_handler(self, request, exception):
         exception_readable_dict = {
@@ -323,19 +369,14 @@ class Scanner(PybActivity):
             requests.exceptions.ReadTimeout: "ERR: Read timed out",
         }
 
+        indices = [
+            i
+            for i, x in enumerate(self._all_results)
+            if x.scan_link == urllib.parse.unquote(request.url)
+        ]
         # Response object will be none so we need to add it to dict here
-        try:
-            self.link_status[request.url] = exception_readable_dict[type(exception)]
-        except KeyError as ex:
-            print(ex)
-            raise UnknownDictExceptionError
-
-    def print_basic_scan_report(self):
-        for article in self.get_article_link_dict:
-            print(f"Running article {article}")
-            for link in self.get_article_link_dict[article]:
-                if link in self.get_normalized_link_list:
-                    print(f"\t{link} => {self.get_link_status(link)}")
+        for idx in indices:
+            self._all_results[idx].set_result_by_exception(exception)
 
     @property
     def get_normalized_link_list(self):
@@ -346,5 +387,5 @@ class Scanner(PybActivity):
         return self.article_link_dict
 
     @property
-    def get_link_status_dict(self):
-        return self.link_status
+    def all_results(self):
+        return self._all_results
